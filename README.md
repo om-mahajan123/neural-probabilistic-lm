@@ -23,12 +23,14 @@ Input: 3 word indices
   → Hidden layer (700 neurons, tanh)
   → Output layer (vocab_size neurons, softmax)
   → Cross-entropy loss
+  → Total parameters comes out to around ~7.7M
 ```
 
 Weights are initialized with Xavier uniform, embeddings with uniform `[-0.1, 0.1]`.
 
 **Where this differs from the paper:**
 - The original paper includes a direct connection from the embedding layer to the output layer, I left this out
+- The paper uses stochastic gradient ascent on the log-likelihood directly, I minimize CE loss with mini-batch gradient descent and a decaying learning rate
 - The paper uses larger context windows (5-10), we use 3
 - Minor differences in initialization and training setup
 
@@ -52,6 +54,15 @@ neural-probabilistic-lm/
 
 The `notebooks/` folder is worth a look if you want to see the full derivation of each gradient, it is a little messy but you can see all the math
 behind the backprop as well as the matrix shapes
+
+---
+
+## Evaluation
+
+Model confidence is tracked using perplexity, computed on a held-out validation set at the end of each epoch. Perplexity measures how "surprised" the model is by the validation data. A perplexity of 20 means the model is as confused as if it had to pick uniformly from 20 words at every step. Lower is better. The model gets heavily penalized if it assigns low probability to the correct word.
+After 20 epochs this implementation reaches a validation perplexity of around ~280-300, which is consistent with what the original paper reports
+
+Also one thing to note while training the model is that except loss to bounce around a little bit. This is the nature of mini-batch GD because not all mini-batches are equal as some may have unique or 'harder' words. This fluctuation can actually be good as it can 'jump' out of a local minima sometimes
 
 ---
 
@@ -80,22 +91,65 @@ pip install -r requirements.txt
 
 ---
 
-## Run
+## Training
+
+By default, `train.py` will load existing parameters from `checkpoints/model.pth` and continue training from where it left off. If no checkpoint exists yet it will create new fresh parameters.
 
 ```bash
-python train.py
+python train.py              # load existing checkpoint and continue training
+python train.py --new_params # creates new parameters regardless
 ```
 
-You should see loss dropping from around ~9.2 down toward ~5.3 over 20 epochs:
+Parameters and the embedding matrix is saved to `checkpoints/model.pth` at the end of each run. This means you can stop and resume training at any point without losing progress.
+
+You should see loss and perplexity dropping across epochs:
 
 ```
-Epoch 1/20 | Batch 0/1733 | Loss: 9.1842
-Epoch 1/20 | Batch 100/1733 | Loss: 7.6201
-...
-Epoch 20/20 | Batch 1700/1733 | Loss: 5.3104
+Epoch: 0 | Learning Rate: 0.1
+Average CE Loss: 9.210 | Batch: 1/1386
+Average CE Loss: 7.467 | Batch: 1201/1386
+Epoch 0 Finished | Avg Train Loss: 7.3666 | Val Perplexity: 837.92
+
+Epoch: 5 | Learning Rate: 0.0725
+Epoch 5 Finished | Avg Train Loss: 6.1203 | Val Perplexity: 487.33
+
+Epoch: 20 | Learning Rate: 0.01
+Epoch 20 Finished | Avg Train Loss: 5.3104 | Val Perplexity: ~280-300
 ```
 
-You can expirement with the learning rate and other hyperparameters to see how they affect with model training
+---
+
+## Inference
+
+Once training is complete, run inference on any 3-word prompt:
+
+```bash
+python run.py --prompt "the dog ran"
+```
+
+Output:
+```
+Input: 'the dog ran'
+Top 5 predictions:
+  in              5.21%
+  the             4.61%
+  a               4.18%
+  to              4.12%
+  <unk>           3.77%
+```
+
+All 3 words must be present in the PTB vocabulary. The model will notify you if a word is out of vocabulary.
+
+---
+
+## Future Work
+
+There are a few directions I'd like to extend this project:
+
+- Word2Vec comparison, implement CBOW and skip-gram from scratch and compare the learned embedding spaces against Bengio's model
+- Embedding visualization, t-SNE plots of the learned embedding space to visually verify that semantically similar words cluster together
+- Analogy evaluation, test the king - man + woman = queen style analogies using cosine similarity on the learned embeddings
+- Transformer, my next and current step is the Transformer implementatio now
 
 ---
 
